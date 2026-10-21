@@ -14,6 +14,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 const NAME: &str = "Apollonios AlbumStudio";
+const BG: &[u8] = include_bytes!("../bg.jpg");
 const EXT: [&str; 8] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff"];
 
 const PAGE: &str = r####"<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
@@ -29,6 +30,7 @@ footer{text-align:center;opacity:.4;font-size:12px;padding:24px}
 #lb.on{display:flex}#lb img{max-width:94vw;max-height:84vh}
 #lb p{color:#ddd;margin:12px}#lb button{position:absolute;background:none;border:0;color:#fff;font-size:42px;cursor:pointer;padding:16px}
 #x{top:0;right:8px}#pv{left:6px;top:45%}#nx{right:6px;top:45%}
+@EXTRA@
 </style></head><body><h1>@TITLE@</h1><p class="n">@DESC@@COUNT@ Bilder</p><div class="g" id="g"></div>
 <footer>Erstellt mit Apollonios AlbumStudio</footer>
 <div id="lb"><button id="x">&times;</button><button id="pv">&#8249;</button><button id="nx">&#8250;</button>
@@ -36,7 +38,7 @@ footer{text-align:center;opacity:.4;font-size:12px;padding:24px}
 <script>
 const D=@DATA@;let i=0;const $=id=>document.getElementById(id);
 D.forEach((d,k)=>{const a=document.createElement('a');a.innerHTML='<img loading="lazy" src="'+d.t+'" alt="">';
-a.onclick=()=>show(k);$('g').appendChild(a)});
+a.style.setProperty('--r',d.r);a.style.setProperty('--g',d.r*100);a.onclick=()=>show(k);$('g').appendChild(a)});
 function show(k){i=(k+D.length)%D.length;$('im').src=D[i].s;$('cp').textContent=D[i].c+(D[i].d?' - '+D[i].d:'');$('lb').classList.add('on')}
 $('x').onclick=()=>$('lb').classList.remove('on');$('pv').onclick=()=>show(i-1);$('nx').onclick=()=>show(i+1);
 document.onkeydown=e=>{if(!$('lb').classList.contains('on'))return;
@@ -67,7 +69,7 @@ impl Default for Project {
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
-struct Cfg { recent: Vec<String> }
+struct Cfg { recent: Vec<String>, design: String }
 
 #[derive(PartialEq, Clone, Copy)]
 enum Tab { Explorer, Edit, Check, Share }
@@ -127,7 +129,7 @@ fn save_jpg(img: &DynamicImage, path: &Path, q: u8) -> Result<(), Box<dyn std::e
 }
 
 #[derive(Serialize)]
-struct Item { t: String, s: String, c: String, d: String }
+struct Item { t: String, s: String, c: String, d: String, r: f32 }
 
 fn build(pr: &Project, out: &Path, done: &AtomicUsize, total: &AtomicUsize, ctx: &egui::Context) -> Result<PathBuf, String> {
     let list: Vec<(usize, &Entry)> = pr.items.iter().filter(|e| !e.excluded).enumerate().collect();
@@ -137,7 +139,7 @@ fn build(pr: &Project, out: &Path, done: &AtomicUsize, total: &AtomicUsize, ctx:
     for d in dirs { fs::create_dir_all(out.join(d)).map_err(|e| e.to_string())?; }
     total.store(list.len(), Relaxed);
     done.store(0, Relaxed);
-    let mosaic = pr.skin == "Mosaik";
+    let mosaic = matches!(pr.skin.as_str(), "Zeilen" | "Mosaik");
     let items: Vec<Item> = list.par_iter().filter_map(|(i, e)| {
         let r = (|| -> Result<Item, Box<dyn std::error::Error>> {
             let p = Path::new(&e.path);
@@ -151,7 +153,7 @@ fn build(pr: &Project, out: &Path, done: &AtomicUsize, total: &AtomicUsize, ctx:
                      else { img.resize_to_fill(pr.thumb * 2, pr.thumb * 2, FilterType::Triangle) };
             save_jpg(&th, &out.join("thumbs").join(&name), 80)?;
             if pr.originals { fs::copy(p, out.join("originals").join(p.file_name().unwrap()))?; }
-            Ok(Item { t: format!("thumbs/{name}"), s: format!("slides/{name}"), c: e.title.clone(), d: e.comment.clone() })
+            Ok(Item { t: format!("thumbs/{name}"), s: format!("slides/{name}"), c: e.title.clone(), d: e.comment.clone(), r: th.width() as f32 / th.height() as f32 })
         })();
         done.fetch_add(1, Relaxed);
         ctx.request_repaint();
@@ -159,16 +161,19 @@ fn build(pr: &Project, out: &Path, done: &AtomicUsize, total: &AtomicUsize, ctx:
     }).collect();
     if items.is_empty() { return Err("Kein Bild konnte verarbeitet werden.".into()); }
     let (bg, fg, card) = match pr.style.as_str() {
-        "Dark" => ("#111", "#eee", "#1c1c1c"), "Sand" => ("#efe6d6", "#3a2f20", "#f8f1e4"), _ => ("#fff", "#222", "#f2f2f2") };
+        "Altgriechisch" => ("#1b1410", "#f3e9d2", "rgba(40,28,18,.8)"), "Dark" => ("#111", "#eee", "#1c1c1c"), "Sand" => ("#efe6d6", "#3a2f20", "#f8f1e4"), _ => ("#fff", "#222", "#f2f2f2") };
     let t = pr.thumb;
     let grid = if mosaic {
-        format!(".g{{columns:{t}px;column-gap:10px;padding:14px;max-width:1400px;margin:auto}}.g a{{margin-bottom:10px;break-inside:avoid}}.g img{{width:100%;height:auto;display:block}}")
+        format!(".g{{display:flex;flex-wrap:wrap;gap:10px;padding:14px;max-width:1400px;margin:auto}}.g::after{{content:\"\";flex-grow:1000000}}.g a{{height:{t}px;flex-grow:var(--g);flex-basis:calc({t}px*var(--r))}}.g img{{width:100%;height:100%;object-fit:cover;display:block}}")
     } else {
         format!(".g{{display:grid;grid-template-columns:repeat(auto-fill,minmax({t}px,1fr));gap:10px;padding:14px;max-width:1400px;margin:auto}}.g img{{width:100%;aspect-ratio:1;object-fit:cover;display:block}}")
     };
     let data = serde_json::to_string(&items).map_err(|e| e.to_string())?.replace("</", "<\\/");
     let desc = if pr.desc.is_empty() { String::new() } else { format!("{} - ", esc(&pr.desc)) };
-    let html = PAGE.replace("@GRID@", &grid).replace("@TITLE@", &esc(&pr.name)).replace("@TAGS@", &esc(&pr.tags))
+    let greek = pr.style == "Altgriechisch";
+    let extra = if greek { "body{background:linear-gradient(rgba(20,12,6,.6),rgba(20,12,6,.75)),url(bg.jpg) center/cover fixed;font-family:Georgia,'Palatino Linotype',serif}h1{color:#e0b85a;letter-spacing:3px;font-weight:400;text-shadow:0 2px 8px #000;border-bottom:2px solid #c9a24b;max-width:520px;margin:0 auto}.g a{border:2px solid #c9a24b}" } else { "" };
+    if greek { fs::write(out.join("bg.jpg"), BG).map_err(|e| e.to_string())?; }
+    let html = PAGE.replace("@GRID@", &grid).replace("@EXTRA@", extra).replace("@TITLE@", &esc(&pr.name)).replace("@TAGS@", &esc(&pr.tags))
         .replace("@BG@", bg).replace("@FG@", fg).replace("@CARD@", card).replace("@DESC@", &desc)
         .replace("@COUNT@", &items.len().to_string()).replace("@DATA@", &data);
     let index = out.join("index.html");
@@ -189,17 +194,23 @@ struct App {
     done: Arc<AtomicUsize>, total: Arc<AtomicUsize>, running: Arc<AtomicBool>,
     result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
     status: String, new_name: String, new_desc: String, new_tags: String, last_title: String,
+    bg: Option<egui::TextureHandle>,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(ctx: &egui::Context) -> Self {
         let cfg: Cfg = fs::read_to_string(cfg_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
         let (tx, rx) = channel();
+        let bg = image::load_from_memory(BG).ok().map(|i| {
+            let t = i.to_rgba8();
+            ctx.load_texture("bg", egui::ColorImage::from_rgba_unmultiplied([t.width() as usize, t.height() as usize], t.as_raw()), egui::TextureOptions::LINEAR)
+        });
+        theme(ctx, cfg.design != "Dunkel");
         App { proj: Project::default(), cfg, tab: Tab::Explorer, modal: Modal::None, sel: HashSet::new(),
             zoom: 150.0, hide: false, tex: HashMap::new(), tx, rx, done: Default::default(), total: Default::default(),
             running: Default::default(), result: Default::default(),
             status: "Wählen Sie einen Bilderordner oder nutzen Sie Drag & Drop und klicken Sie dann \"Album erstellen\".".into(),
-            new_name: String::new(), new_desc: String::new(), new_tags: String::new(), last_title: String::new() }
+            new_name: String::new(), new_desc: String::new(), new_tags: String::new(), last_title: String::new(), bg }
     }
 
     fn save_cfg(&self) {
@@ -345,17 +356,58 @@ impl App {
     }
 }
 
-fn theme(ctx: &egui::Context) {
+fn theme(ctx: &egui::Context, greek: bool) {
     let mut v = egui::Visuals::dark();
-    v.panel_fill = Color32::from_rgb(26, 26, 26);
-    v.window_fill = Color32::from_rgb(34, 34, 34);
-    v.extreme_bg_color = Color32::from_rgb(20, 20, 20);
-    v.selection.bg_fill = Color32::from_rgb(74, 125, 232);
+    if greek {
+        let brown = Color32::from_rgb(78, 54, 32);
+        v.panel_fill = Color32::from_rgba_unmultiplied(24, 16, 10, 210);
+        v.window_fill = Color32::from_rgb(38, 27, 18);
+        v.extreme_bg_color = Color32::from_rgb(22, 15, 9);
+        v.selection.bg_fill = Color32::from_rgb(156, 72, 42);
+        v.widgets.inactive.bg_fill = brown;
+        v.widgets.inactive.weak_bg_fill = brown;
+        v.widgets.hovered.bg_fill = Color32::from_rgb(120, 84, 44);
+        v.widgets.hovered.weak_bg_fill = Color32::from_rgb(120, 84, 44);
+    } else {
+        v.panel_fill = Color32::from_rgb(26, 26, 26);
+        v.window_fill = Color32::from_rgb(34, 34, 34);
+        v.extreme_bg_color = Color32::from_rgb(20, 20, 20);
+        v.selection.bg_fill = Color32::from_rgb(74, 125, 232);
+    }
     ctx.set_visuals(v);
+}
+
+const GOLD: Color32 = Color32::from_rgb(214, 175, 85);
+
+/// Mäander (griechisches Schlüsselmuster) als Zierleiste
+fn meander(p: &egui::Painter, r: egui::Rect) {
+    let st = egui::Stroke::new(1.6, GOLD);
+    let h = r.height().min(14.0);
+    let y = r.min.y;
+    let mut x = r.min.x;
+    p.line_segment([egui::pos2(r.min.x, y + h), egui::pos2(r.max.x, y + h)], st);
+    while x + h <= r.max.x {
+        let pts = vec![egui::pos2(x, y + h), egui::pos2(x, y), egui::pos2(x + h, y), egui::pos2(x + h, y + h * 0.7),
+            egui::pos2(x + h * 0.3, y + h * 0.7), egui::pos2(x + h * 0.3, y + h * 0.35), egui::pos2(x + h * 0.65, y + h * 0.35)];
+        let _ = p.add(egui::Shape::line(pts, st));
+        x += h + 3.0;
+    }
 }
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _f: &mut eframe::Frame) {
+        let greek = self.cfg.design != "Dunkel";
+        if greek {
+            if let Some(t) = &self.bg {
+                let sr = ctx.screen_rect();
+                let (iw, ih) = (t.size_vec2().x, t.size_vec2().y);
+                let (ia, sa) = (iw / ih, sr.width() / sr.height());
+                let (u0, u1, v0, v1) = if sa > ia { let h = ia / sa; let o = (1.0 - h) * 0.6; (0.0, 1.0, o, o + h) }
+                    else { let w = sa / ia; let o = (1.0 - w) / 2.0; (o, o + w, 0.0, 1.0) };
+                ctx.layer_painter(egui::LayerId::background()).image(t.id(), sr,
+                    egui::Rect::from_min_max(egui::pos2(u0, v0), egui::pos2(u1, v1)), Color32::WHITE);
+            }
+        }
         while let Ok((p, ci)) = self.rx.try_recv() {
             if let Some(ci) = ci { let h = ctx.load_texture(p.to_string_lossy(), ci, egui::TextureOptions::LINEAR); self.tex.insert(p, h); }
         }
@@ -416,6 +468,17 @@ impl eframe::App for App {
                         mi(ui, &mut acts, "Name absteigend", "", Act::Sort(1));
                         mi(ui, &mut acts, "Änderungsdatum", "", Act::Sort(2));
                     });
+                    ui.menu_button("Design", |ui| {
+                        for d in ["Altgriechisch", "Dunkel"] {
+                            let on = (d == "Dunkel") == (self.cfg.design == "Dunkel");
+                            if ui.selectable_label(on, d).clicked() {
+                                self.cfg.design = d.to_string();
+                                theme(ctx, d != "Dunkel");
+                                self.save_cfg();
+                                ui.close_menu();
+                            }
+                        }
+                    });
                     ui.checkbox(&mut self.hide, "Ausgeschlossene verbergen");
                     ui.separator();
                     mi(ui, &mut acts, "Aktualisieren", "F5", Act::Refresh);
@@ -454,10 +517,10 @@ impl eframe::App for App {
             ui.label(RichText::new("Skin und Style").size(17.0));
             let before = (self.proj.skin.clone(), self.proj.style.clone());
             egui::ComboBox::from_id_salt("skin").width(220.0).selected_text(self.proj.skin.clone()).show_ui(ui, |ui| {
-                for s in ["Plain", "Mosaik"] { ui.selectable_value(&mut self.proj.skin, s.to_string(), s); }
+                for s in ["Plain", "Zeilen"] { ui.selectable_value(&mut self.proj.skin, s.to_string(), s); }
             });
             egui::ComboBox::from_id_salt("style").width(220.0).selected_text(self.proj.style.clone()).show_ui(ui, |ui| {
-                for s in ["White", "Dark", "Sand"] { ui.selectable_value(&mut self.proj.style, s.to_string(), s); }
+                for s in ["White", "Dark", "Sand", "Altgriechisch"] { ui.selectable_value(&mut self.proj.style, s.to_string(), s); }
             });
             if before != (self.proj.skin.clone(), self.proj.style.clone()) { self.proj.dirty = true; }
             ui.add_space(12.0);
@@ -477,13 +540,20 @@ impl eframe::App for App {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        let cf = if greek {
+            egui::Frame::default().fill(Color32::from_rgba_unmultiplied(18, 11, 7, 140)).inner_margin(egui::Margin::same(10.0))
+        } else { egui::Frame::central_panel(&ctx.style()) };
+        egui::CentralPanel::default().frame(cf).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for (t, n) in [(Tab::Explorer, "Explorer"), (Tab::Edit, "Bearbeiten"), (Tab::Check, "Überprüfen"), (Tab::Share, "Teilen")] {
                     ui.selectable_value(&mut self.tab, t, RichText::new(n).size(18.0));
                 }
             });
-            ui.separator();
+            if greek {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
+                meander(&ui.painter_at(r), r);
+                ui.add_space(4.0);
+            } else { ui.separator(); }
             match self.tab {
                 Tab::Explorer => {
                     ui.horizontal(|ui| {
@@ -496,6 +566,7 @@ impl eframe::App for App {
                     if self.proj.items.is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 3.0);
+                            if greek { ui.label(RichText::new("Καλώς ήρθατε").size(30.0).color(GOLD)); }
                             ui.label(RichText::new("Ziehen Sie Fotos oder Ordner\nper Drag & Drop hierher").size(22.0));
                             ui.add_space(14.0);
                             if ui.button("...oder klicken Sie: Hinzufügen").clicked() { acts.push(Act::Add); }
@@ -652,5 +723,5 @@ fn main() -> eframe::Result {
             .with_min_inner_size([820.0, 520.0]).with_title(NAME),
         ..Default::default()
     };
-    eframe::run_native(NAME, opts, Box::new(|cc| { theme(&cc.egui_ctx); Ok(Box::new(App::new())) }))
+    eframe::run_native(NAME, opts, Box::new(|cc| Ok(Box::new(App::new(&cc.egui_ctx)))))
 }
