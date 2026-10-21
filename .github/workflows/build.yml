@@ -1,0 +1,16 @@
+name: Build Portable
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo build --release
+      - run: |
+          mkdir AlbumStudio-Portable
+          copy target\release\album-studio.exe AlbumStudio-Portable\AlbumStudio.exe
+          copy README.txt AlbumStudio-Portable\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AlbumStudio-Portable
+          path: AlbumStudio-Portable
