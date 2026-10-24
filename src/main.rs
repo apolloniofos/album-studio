@@ -14,6 +14,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 const NAME: &str = "Apollonios AlbumStudio";
+static EL: AtomicBool = AtomicBool::new(false);
 const BG: &[u8] = include_bytes!("../bg.jpg");
 const EXT: [&str; 8] = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "tif", "tiff"];
 
@@ -69,7 +70,7 @@ impl Default for Project {
 
 #[derive(Serialize, Deserialize, Default)]
 #[serde(default)]
-struct Cfg { recent: Vec<String>, design: String }
+struct Cfg { recent: Vec<String>, design: String, lang: String }
 
 #[derive(PartialEq, Clone, Copy)]
 enum Tab { Explorer, Edit, Check, Share }
@@ -79,6 +80,42 @@ enum Modal { None, New, Settings, About }
 enum Act {
     NewDlg, OpenDlg, Open(PathBuf), Save, SaveAs, Close, Quit, Add, AddFolder, Exclude, Remove,
     SelectAll, Invert, Sort(u8), Refresh, Build, Preview, Settings, About, OpenOut, OpenBrowser, Tab(Tab),
+}
+
+
+/// Menü- und Oberflächentexte: Deutsch (Standard) oder Griechisch
+fn tr(s: &str) -> String {
+    if !EL.load(Relaxed) { return s.to_string(); }
+    let g = match s {
+        "Datei" => "Αρχείο", "Bearbeiten" => "Επεξεργασία", "Ansicht" => "Προβολή", "Album" => "Άλμπουμ",
+        "Tools" => "Εργαλεία", "Hilfe" => "Βοήθεια",
+        "Neues Projekt..." => "Νέο έργο...", "Projekt öffnen..." => "Άνοιγμα έργου...", "Letzte Projekte" => "Πρόσφατα έργα",
+        "Projekt schließen" => "Κλείσιμο έργου", "Projekt speichern" => "Αποθήκευση έργου",
+        "Projekt speichern unter..." => "Αποθήκευση ως...", "Beenden" => "Έξοδος",
+        "Dateien hinzufügen..." => "Προσθήκη αρχείων...", "Ordner hinzufügen..." => "Προσθήκη φακέλου...",
+        "Ausschließen / Einschließen" => "Εξαίρεση / Συμπερίληψη", "Entfernen" => "Αφαίρεση",
+        "Alles auswählen" => "Επιλογή όλων", "Auswahl umkehren" => "Αντιστροφή επιλογής",
+        "Zoom" => "Ζουμ", "Sortierung" => "Ταξινόμηση", "Name aufsteigend" => "Όνομα (αύξουσα)",
+        "Name absteigend" => "Όνομα (φθίνουσα)", "Änderungsdatum" => "Ημερομηνία αλλαγής",
+        "Design" => "Εμφάνιση", "Sprache" => "Γλώσσα", "Ausgeschlossene verbergen" => "Απόκρυψη εξαιρεθέντων",
+        "Aktualisieren" => "Ανανέωση", "Album erstellen" => "Δημιουργία άλμπουμ", "Vorschau" => "Προεπισκόπηση",
+        "Einstellungen" => "Ρυθμίσεις", "Überprüfen" => "Έλεγχος", "Album im Browser öffnen" => "Άνοιγμα στον περιηγητή",
+        "Ausgabeordner öffnen" => "Άνοιγμα φακέλου εξόδου", "Über Apollonios AlbumStudio..." => "Σχετικά με το Apollonios AlbumStudio...",
+        "Explorer" => "Εξερευνητής", "Teilen" => "Κοινοποίηση", "Skin und Style" => "Θέμα και στυλ",
+        "Hinzufügen" => "Προσθήκη", "Dateien..." => "Αρχεία...", "Ordner..." => "Φάκελος...",
+        "...oder klicken Sie: Hinzufügen" => "...ή πατήστε: Προσθήκη",
+        "Ziehen Sie Fotos oder Ordner\nper Drag & Drop hierher" => "Σύρετε φωτογραφίες ή φακέλους εδώ",
+        "Titel" => "Τίτλος", "Beschreibung" => "Περιγραφή", "Album-Name" => "Όνομα άλμπουμ",
+        "Album-Beschreibung" => "Περιγραφή άλμπουμ", "Album-Tags" => "Ετικέτες άλμπουμ", "Abbrechen" => "Άκυρο",
+        "Albumtitel" => "Τίτλος άλμπουμ", "Tags" => "Ετικέτες", "Ausgabeordner" => "Φάκελος εξόδου",
+        "Schließen" => "Κλείσιμο", "Im Browser öffnen" => "Άνοιγμα στον περιηγητή", "Ordner öffnen" => "Άνοιγμα φακέλου",
+        "Neues Projekt" => "Νέο έργο", "Über" => "Σχετικά",
+        "Vorschaugröße" => "Μέγεθος μικρογραφίας", "Bildgröße max." => "Μέγ. μέγεθος εικόνας",
+        "JPEG-Qualität" => "Ποιότητα JPEG", "Originale mitkopieren (Download)" => "Αντιγραφή πρωτοτύπων (λήψη)",
+        "Version 1.0 - Web-Galerien aus Fotos erstellen." => "Έκδοση 1.0 - Δημιουργία γκαλερί ιστού από φωτογραφίες.",
+        _ => s,
+    };
+    g.to_string()
 }
 
 fn docs() -> PathBuf {
@@ -182,7 +219,7 @@ fn build(pr: &Project, out: &Path, done: &AtomicUsize, total: &AtomicUsize, ctx:
 }
 
 fn mi(ui: &mut egui::Ui, acts: &mut Vec<Act>, label: &str, sc: &str, a: Act) {
-    let mut b = egui::Button::new(label);
+    let mut b = egui::Button::new(tr(label));
     if !sc.is_empty() { b = b.shortcut_text(sc); }
     if ui.add(b).clicked() { acts.push(a); ui.close_menu(); }
 }
@@ -195,27 +232,23 @@ struct App {
     result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
     status: String, new_name: String, new_desc: String, new_tags: String, last_title: String,
     bg: Option<egui::TextureHandle>,
-    blur: Option<egui::TextureHandle>,
 }
 
 impl App {
     fn new(ctx: &egui::Context) -> Self {
         let cfg: Cfg = fs::read_to_string(cfg_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        EL.store(cfg.lang == "el", Relaxed);
         let (tx, rx) = channel();
         let bg = image::load_from_memory(BG).ok().map(|i| {
             let t = i.to_rgba8();
             ctx.load_texture("bg", egui::ColorImage::from_rgba_unmultiplied([t.width() as usize, t.height() as usize], t.as_raw()), egui::TextureOptions::LINEAR)
-        });
-        let blur = image::load_from_memory(BG).ok().map(|i| {
-            let t = i.thumbnail(240, 240).blur(6.0).to_rgba8();
-            ctx.load_texture("bgblur", egui::ColorImage::from_rgba_unmultiplied([t.width() as usize, t.height() as usize], t.as_raw()), egui::TextureOptions::LINEAR)
         });
         theme(ctx, cfg.design != "Dunkel");
         App { proj: Project::default(), cfg, tab: Tab::Explorer, modal: Modal::None, sel: HashSet::new(),
             zoom: 150.0, hide: false, tex: HashMap::new(), tx, rx, done: Default::default(), total: Default::default(),
             running: Default::default(), result: Default::default(),
             status: "Wählen Sie einen Bilderordner oder nutzen Sie Drag & Drop und klicken Sie dann \"Album erstellen\".".into(),
-            new_name: String::new(), new_desc: String::new(), new_tags: String::new(), last_title: String::new(), bg, blur }
+            new_name: String::new(), new_desc: String::new(), new_tags: String::new(), last_title: String::new(), bg }
     }
 
     fn save_cfg(&self) {
@@ -365,7 +398,7 @@ fn theme(ctx: &egui::Context, greek: bool) {
     let mut v = egui::Visuals::dark();
     if greek {
         let brown = Color32::from_rgb(78, 54, 32);
-        v.panel_fill = Color32::from_rgba_unmultiplied(24, 16, 10, 210);
+        v.panel_fill = Color32::from_rgb(24, 16, 10);
         v.window_fill = Color32::from_rgb(38, 27, 18);
         v.extreme_bg_color = Color32::from_rgb(22, 15, 9);
         v.selection.bg_fill = Color32::from_rgb(156, 72, 42);
@@ -405,25 +438,6 @@ impl eframe::App for App {
         // Design immer erzwingen (Windows-Hellmodus würde sonst überschreiben)
         let want = if greek { Color32::from_rgb(156, 72, 42) } else { Color32::from_rgb(74, 125, 232) };
         if ctx.style().visuals.selection.bg_fill != want { theme(ctx, greek); }
-        if greek {
-            if let (Some(t), Some(b)) = (&self.bg, &self.blur) {
-                let sr = ctx.screen_rect();
-                let p = ctx.layer_painter(egui::LayerId::background());
-                let full = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-                // 1) Weichgezeichnete Variante füllt den ganzen Bildschirm (jede Größe/Seitenverhältnis)
-                let ba = b.size_vec2().x / b.size_vec2().y;
-                let sa = sr.width() / sr.height();
-                let uv = if sa > ba { let h = ba / sa; let o = (1.0 - h) * 0.5; egui::Rect::from_min_max(egui::pos2(0.0, o), egui::pos2(1.0, o + h)) }
-                    else { let w = sa / ba; let o = (1.0 - w) * 0.5; egui::Rect::from_min_max(egui::pos2(o, 0.0), egui::pos2(o + w, 1.0)) };
-                p.image(b.id(), sr, uv, Color32::from_gray(150));
-                // 2) Scharfes Bild vollständig (nichts abgeschnitten), mittig im Arbeitsbereich
-                let s0 = t.size_vec2();
-                let k = (sr.width() / s0.x).min(sr.height() / s0.y);
-                let size = s0 * k;
-                let cx = (sr.center().x + 125.0).min(sr.max.x - size.x / 2.0).max(sr.min.x + size.x / 2.0);
-                p.image(t.id(), egui::Rect::from_center_size(egui::pos2(cx, sr.center().y), size), full, Color32::WHITE);
-            }
-        }
         while let Ok((p, ci)) = self.rx.try_recv() {
             if let Some(ci) = ci { let h = ctx.load_texture(p.to_string_lossy(), ci, egui::TextureOptions::LINEAR); self.tex.insert(p, h); }
         }
@@ -453,10 +467,10 @@ impl eframe::App for App {
 
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("Datei", |ui| {
+                ui.menu_button(tr("Datei"), |ui| {
                     mi(ui, &mut acts, "Neues Projekt...", "Strg+N", Act::NewDlg);
                     mi(ui, &mut acts, "Projekt öffnen...", "Strg+O", Act::OpenDlg);
-                    ui.menu_button("Letzte Projekte", |ui| {
+                    ui.menu_button(tr("Letzte Projekte"), |ui| {
                         for r in self.cfg.recent.clone() {
                             if ui.button(stem_of(&r)).clicked() { acts.push(Act::Open(PathBuf::from(r))); ui.close_menu(); }
                         }
@@ -468,7 +482,7 @@ impl eframe::App for App {
                     ui.separator();
                     mi(ui, &mut acts, "Beenden", "", Act::Quit);
                 });
-                ui.menu_button("Bearbeiten", |ui| {
+                ui.menu_button(tr("Bearbeiten"), |ui| {
                     mi(ui, &mut acts, "Dateien hinzufügen...", "", Act::Add);
                     mi(ui, &mut acts, "Ordner hinzufügen...", "", Act::AddFolder);
                     mi(ui, &mut acts, "Ausschließen / Einschließen", "", Act::Exclude);
@@ -477,14 +491,14 @@ impl eframe::App for App {
                     mi(ui, &mut acts, "Alles auswählen", "Strg+A", Act::SelectAll);
                     mi(ui, &mut acts, "Auswahl umkehren", "", Act::Invert);
                 });
-                ui.menu_button("Ansicht", |ui| {
-                    ui.menu_button("Zoom", |ui| { ui.add(egui::Slider::new(&mut self.zoom, 80.0..=300.0)); });
-                    ui.menu_button("Sortierung", |ui| {
+                ui.menu_button(tr("Ansicht"), |ui| {
+                    ui.menu_button(tr("Zoom"), |ui| { ui.add(egui::Slider::new(&mut self.zoom, 80.0..=300.0)); });
+                    ui.menu_button(tr("Sortierung"), |ui| {
                         mi(ui, &mut acts, "Name aufsteigend", "", Act::Sort(0));
                         mi(ui, &mut acts, "Name absteigend", "", Act::Sort(1));
                         mi(ui, &mut acts, "Änderungsdatum", "", Act::Sort(2));
                     });
-                    ui.menu_button("Design", |ui| {
+                    ui.menu_button(tr("Design"), |ui| {
                         for d in ["Altgriechisch", "Dunkel"] {
                             let on = (d == "Dunkel") == (self.cfg.design == "Dunkel");
                             if ui.selectable_label(on, d).clicked() {
@@ -495,30 +509,41 @@ impl eframe::App for App {
                             }
                         }
                     });
-                    ui.checkbox(&mut self.hide, "Ausgeschlossene verbergen");
+                    ui.menu_button(tr("Sprache"), |ui| {
+                        for (code, name) in [("de", "Deutsch"), ("el", "Ελληνικά")] {
+                            let on = self.cfg.lang == code || (code == "de" && self.cfg.lang.is_empty());
+                            if ui.selectable_label(on, name).clicked() {
+                                self.cfg.lang = code.to_string();
+                                EL.store(code == "el", Relaxed);
+                                self.save_cfg();
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    ui.checkbox(&mut self.hide, tr("Ausgeschlossene verbergen"));
                     ui.separator();
                     mi(ui, &mut acts, "Aktualisieren", "F5", Act::Refresh);
                 });
-                ui.menu_button("Album", |ui| {
+                ui.menu_button(tr("Album"), |ui| {
                     mi(ui, &mut acts, "Album erstellen", "F9", Act::Build);
                     mi(ui, &mut acts, "Vorschau", "F12", Act::Preview);
                     ui.separator();
                     mi(ui, &mut acts, "Einstellungen", "F4", Act::Settings);
                 });
-                ui.menu_button("Tools", |ui| {
+                ui.menu_button(tr("Tools"), |ui| {
                     mi(ui, &mut acts, "Überprüfen", "", Act::Tab(Tab::Check));
                     mi(ui, &mut acts, "Album im Browser öffnen", "", Act::OpenBrowser);
                     mi(ui, &mut acts, "Ausgabeordner öffnen", "", Act::OpenOut);
                 });
-                ui.menu_button("Hilfe", |ui| { mi(ui, &mut acts, "Über Apollonios AlbumStudio...", "", Act::About); });
+                ui.menu_button(tr("Hilfe"), |ui| { mi(ui, &mut acts, "Über Apollonios AlbumStudio...", "", Act::About); });
             });
         });
 
         egui::SidePanel::left("left").exact_width(250.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Letzte Projekte").size(17.0));
+                ui.label(RichText::new(tr("Letzte Projekte")).size(17.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("+").clicked() { acts.push(Act::NewDlg); }
+                    if ui.button(tr("+")).clicked() { acts.push(Act::NewDlg); }
                 });
             });
             ui.separator();
@@ -530,7 +555,7 @@ impl eframe::App for App {
             }
             ui.add_space(24.0);
             ui.separator();
-            ui.label(RichText::new("Skin und Style").size(17.0));
+            ui.label(RichText::new(tr("Skin und Style")).size(17.0));
             let before = (self.proj.skin.clone(), self.proj.style.clone());
             egui::ComboBox::from_id_salt("skin").width(220.0).selected_text(self.proj.skin.clone()).show_ui(ui, |ui| {
                 for s in ["Plain", "Zeilen"] { ui.selectable_value(&mut self.proj.skin, s.to_string(), s); }
@@ -541,9 +566,9 @@ impl eframe::App for App {
             if before != (self.proj.skin.clone(), self.proj.style.clone()) { self.proj.dirty = true; }
             ui.add_space(12.0);
             let w = ui.available_width();
-            if ui.add_sized([w, 30.0], egui::Button::new("Einstellungen")).clicked() { acts.push(Act::Settings); }
-            if ui.add_enabled(!running, egui::Button::new("Album erstellen").min_size(egui::vec2(w, 30.0))).clicked() { acts.push(Act::Build); }
-            if ui.add_enabled(!running, egui::Button::new("Vorschau").min_size(egui::vec2(w, 30.0))).clicked() { acts.push(Act::Preview); }
+            if ui.add_sized([w, 30.0], egui::Button::new(tr("Einstellungen"))).clicked() { acts.push(Act::Settings); }
+            if ui.add_enabled(!running, egui::Button::new(tr("Album erstellen")).min_size(egui::vec2(w, 30.0))).clicked() { acts.push(Act::Build); }
+            if ui.add_enabled(!running, egui::Button::new(tr("Vorschau")).min_size(egui::vec2(w, 30.0))).clicked() { acts.push(Act::Preview); }
         });
 
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
@@ -557,23 +582,29 @@ impl eframe::App for App {
         });
 
         let cf = if greek {
-            egui::Frame::default().fill(Color32::from_rgba_unmultiplied(18, 11, 7, 140)).inner_margin(egui::Margin::same(10.0))
+            egui::Frame::default().fill(Color32::from_rgb(24, 16, 10)).inner_margin(egui::Margin::same(10.0))
         } else { egui::Frame::central_panel(&ctx.style()) };
         egui::CentralPanel::default().frame(cf).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for (t, n) in [(Tab::Explorer, "Explorer"), (Tab::Edit, "Bearbeiten"), (Tab::Check, "Überprüfen"), (Tab::Share, "Teilen")] {
-                    ui.selectable_value(&mut self.tab, t, RichText::new(n).size(18.0));
+                    ui.selectable_value(&mut self.tab, t, RichText::new(tr(n)).size(18.0));
                 }
             });
             if greek {
                 let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 14.0), egui::Sense::hover());
                 meander(&ui.painter_at(r), r);
                 ui.add_space(4.0);
+                if let Some(t) = &self.bg {
+                    let area = ui.max_rect().expand(10.0);
+                    let rect = egui::Rect::from_min_max(egui::pos2(area.min.x, r.max.y + 3.0), area.max);
+                    let full = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                    ui.painter().image(t.id(), rect, full, Color32::from_gray(185));
+                }
             } else { ui.separator(); }
             match self.tab {
                 Tab::Explorer => {
                     ui.horizontal(|ui| {
-                        ui.menu_button("Hinzufügen", |ui| {
+                        ui.menu_button(tr("Hinzufügen"), |ui| {
                             mi(ui, &mut acts, "Dateien...", "", Act::Add);
                             mi(ui, &mut acts, "Ordner...", "", Act::AddFolder);
                         });
@@ -582,10 +613,9 @@ impl eframe::App for App {
                     if self.proj.items.is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.add_space(ui.available_height() / 3.0);
-                            if greek { ui.label(RichText::new("Καλώς ήρθατε").size(30.0).color(GOLD)); }
-                            ui.label(RichText::new("Ziehen Sie Fotos oder Ordner\nper Drag & Drop hierher").size(22.0));
+                            ui.label(RichText::new(tr("Ziehen Sie Fotos oder Ordner\nper Drag & Drop hierher")).size(22.0));
                             ui.add_space(14.0);
-                            if ui.button("...oder klicken Sie: Hinzufügen").clicked() { acts.push(Act::Add); }
+                            if ui.button(tr("...oder klicken Sie: Hinzufügen")).clicked() { acts.push(Act::Add); }
                         });
                     } else {
                         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -634,14 +664,14 @@ impl eframe::App for App {
                                     let k = (c[0].available_width() / s.x).min(420.0 / s.y);
                                     c[0].add(egui::Image::new((t.id(), s * k)));
                                 }
-                                c[1].label("Titel");
+                                c[1].label(tr("Titel"));
                                 if c[1].add(egui::TextEdit::singleline(&mut self.proj.items[i].title).desired_width(f32::INFINITY)).changed() { self.proj.dirty = true; }
-                                c[1].label("Beschreibung");
+                                c[1].label(tr("Beschreibung"));
                                 if c[1].add(egui::TextEdit::multiline(&mut self.proj.items[i].comment).desired_rows(4).desired_width(f32::INFINITY)).changed() { self.proj.dirty = true; }
                                 c[1].label(RichText::new(self.proj.items[i].path.clone()).weak());
                             });
                         }
-                        _ => { ui.label("Wählen Sie im Explorer ein Bild aus (Doppelklick öffnet es hier)."); }
+                        _ => { ui.label(tr("Wählen Sie im Explorer ein Bild aus (Doppelklick öffnet es hier).")); }
                     }
                 }
                 Tab::Check => {
@@ -659,12 +689,12 @@ impl eframe::App for App {
                     ui.label(format!("Ausgabeordner: {}", self.out_dir().display()));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Album erstellen").clicked() { acts.push(Act::Build); }
-                        if ui.button("Im Browser öffnen").clicked() { acts.push(Act::OpenBrowser); }
-                        if ui.button("Ordner öffnen").clicked() { acts.push(Act::OpenOut); }
+                        if ui.button(tr("Album erstellen")).clicked() { acts.push(Act::Build); }
+                        if ui.button(tr("Im Browser öffnen")).clicked() { acts.push(Act::OpenBrowser); }
+                        if ui.button(tr("Ordner öffnen")).clicked() { acts.push(Act::OpenOut); }
                     });
                     ui.add_space(8.0);
-                    ui.label("Zum Veröffentlichen den Ausgabeordner per FTP auf Ihren Webspace hochladen.");
+                    ui.label(tr("Zum Veröffentlichen den Ausgabeordner per FTP auf Ihren Webspace hochladen."));
                 }
             }
         });
@@ -672,15 +702,15 @@ impl eframe::App for App {
         let (mut ok, mut cancel) = (false, false);
         match self.modal {
             Modal::New => {
-                egui::Window::new("Neues Projekt").collapsible(false).resizable(false)
+                egui::Window::new(tr("Neues Projekt")).collapsible(false).resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                        ui.label("Album-Name");
+                        ui.label(tr("Album-Name"));
                         ui.add(egui::TextEdit::singleline(&mut self.new_name).desired_width(320.0));
-                        ui.label("Album-Beschreibung");
+                        ui.label(tr("Album-Beschreibung"));
                         ui.add(egui::TextEdit::multiline(&mut self.new_desc).desired_rows(3).desired_width(320.0));
-                        ui.label("Album-Tags");
+                        ui.label(tr("Album-Tags"));
                         ui.add(egui::TextEdit::singleline(&mut self.new_tags).hint_text("Beispiel: Natur, Makro, Portfolio").desired_width(320.0));
-                        ui.horizontal(|ui| { if ui.button("Ok").clicked() { ok = true; } if ui.button("Abbrechen").clicked() { cancel = true; } });
+                        ui.horizontal(|ui| { if ui.button(tr("Ok")).clicked() { ok = true; } if ui.button(tr("Abbrechen")).clicked() { cancel = true; } });
                     });
                 if ok {
                     let mut p = Project::default();
@@ -693,34 +723,34 @@ impl eframe::App for App {
                 if cancel { self.modal = Modal::None; }
             }
             Modal::Settings => {
-                egui::Window::new("Einstellungen").collapsible(false).resizable(false)
+                egui::Window::new(tr("Einstellungen")).collapsible(false).resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                        ui.label("Albumtitel");
+                        ui.label(tr("Albumtitel"));
                         ui.add(egui::TextEdit::singleline(&mut self.proj.name).desired_width(360.0));
-                        ui.label("Beschreibung");
+                        ui.label(tr("Beschreibung"));
                         ui.add(egui::TextEdit::singleline(&mut self.proj.desc).desired_width(360.0));
-                        ui.label("Tags");
+                        ui.label(tr("Tags"));
                         ui.add(egui::TextEdit::singleline(&mut self.proj.tags).desired_width(360.0));
-                        ui.label("Ausgabeordner");
+                        ui.label(tr("Ausgabeordner"));
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(&mut self.proj.out).desired_width(320.0));
-                            if ui.button("...").clicked() { if let Some(p) = rfd::FileDialog::new().pick_folder() { self.proj.out = p.to_string_lossy().to_string(); } }
+                            if ui.button(tr("...")).clicked() { if let Some(p) = rfd::FileDialog::new().pick_folder() { self.proj.out = p.to_string_lossy().to_string(); } }
                         });
-                        ui.add(egui::Slider::new(&mut self.proj.thumb, 100..=500).text("Vorschaugröße"));
-                        ui.add(egui::Slider::new(&mut self.proj.size, 600..=4000).text("Bildgröße max."));
-                        ui.add(egui::Slider::new(&mut self.proj.quality, 40..=100).text("JPEG-Qualität"));
-                        ui.checkbox(&mut self.proj.originals, "Originale mitkopieren (Download)");
-                        if ui.button("Ok").clicked() { ok = true; }
+                        ui.add(egui::Slider::new(&mut self.proj.thumb, 100..=500).text(tr("Vorschaugröße")));
+                        ui.add(egui::Slider::new(&mut self.proj.size, 600..=4000).text(tr("Bildgröße max.")));
+                        ui.add(egui::Slider::new(&mut self.proj.quality, 40..=100).text(tr("JPEG-Qualität")));
+                        ui.checkbox(&mut self.proj.originals, tr("Originale mitkopieren (Download)"));
+                        if ui.button(tr("Ok")).clicked() { ok = true; }
                     });
                 if ok { self.proj.dirty = true; self.modal = Modal::None; }
             }
             Modal::About => {
-                egui::Window::new("Über").collapsible(false).resizable(false)
+                egui::Window::new(tr("Über")).collapsible(false).resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
                         ui.heading(NAME);
-                        ui.label("Version 1.0 - Web-Galerien aus Fotos erstellen.");
-                        ui.label("(c) Apollonios");
-                        if ui.button("Schließen").clicked() { cancel = true; }
+                        ui.label(tr("Version 1.0 - Web-Galerien aus Fotos erstellen."));
+                        ui.label(tr("(c) Apollonios"));
+                        if ui.button(tr("Schließen")).clicked() { cancel = true; }
                     });
                 if cancel { self.modal = Modal::None; }
             }
