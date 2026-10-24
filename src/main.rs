@@ -195,6 +195,7 @@ struct App {
     result: Arc<Mutex<Option<Result<PathBuf, String>>>>,
     status: String, new_name: String, new_desc: String, new_tags: String, last_title: String,
     bg: Option<egui::TextureHandle>,
+    blur: Option<egui::TextureHandle>,
 }
 
 impl App {
@@ -205,12 +206,16 @@ impl App {
             let t = i.to_rgba8();
             ctx.load_texture("bg", egui::ColorImage::from_rgba_unmultiplied([t.width() as usize, t.height() as usize], t.as_raw()), egui::TextureOptions::LINEAR)
         });
+        let blur = image::load_from_memory(BG).ok().map(|i| {
+            let t = i.thumbnail(240, 240).blur(6.0).to_rgba8();
+            ctx.load_texture("bgblur", egui::ColorImage::from_rgba_unmultiplied([t.width() as usize, t.height() as usize], t.as_raw()), egui::TextureOptions::LINEAR)
+        });
         theme(ctx, cfg.design != "Dunkel");
         App { proj: Project::default(), cfg, tab: Tab::Explorer, modal: Modal::None, sel: HashSet::new(),
             zoom: 150.0, hide: false, tex: HashMap::new(), tx, rx, done: Default::default(), total: Default::default(),
             running: Default::default(), result: Default::default(),
             status: "Wählen Sie einen Bilderordner oder nutzen Sie Drag & Drop und klicken Sie dann \"Album erstellen\".".into(),
-            new_name: String::new(), new_desc: String::new(), new_tags: String::new(), last_title: String::new(), bg }
+            new_name: String::new(), new_desc: String::new(), new_tags: String::new(), last_title: String::new(), bg, blur }
     }
 
     fn save_cfg(&self) {
@@ -397,15 +402,26 @@ fn meander(p: &egui::Painter, r: egui::Rect) {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _f: &mut eframe::Frame) {
         let greek = self.cfg.design != "Dunkel";
+        // Design immer erzwingen (Windows-Hellmodus würde sonst überschreiben)
+        let want = if greek { Color32::from_rgb(156, 72, 42) } else { Color32::from_rgb(74, 125, 232) };
+        if ctx.style().visuals.selection.bg_fill != want { theme(ctx, greek); }
         if greek {
-            if let Some(t) = &self.bg {
+            if let (Some(t), Some(b)) = (&self.bg, &self.blur) {
                 let sr = ctx.screen_rect();
-                let (iw, ih) = (t.size_vec2().x, t.size_vec2().y);
-                let (ia, sa) = (iw / ih, sr.width() / sr.height());
-                let (u0, u1, v0, v1) = if sa > ia { let h = ia / sa; let o = (1.0 - h) * 0.6; (0.0, 1.0, o, o + h) }
-                    else { let w = sa / ia; let o = (1.0 - w) / 2.0; (o, o + w, 0.0, 1.0) };
-                ctx.layer_painter(egui::LayerId::background()).image(t.id(), sr,
-                    egui::Rect::from_min_max(egui::pos2(u0, v0), egui::pos2(u1, v1)), Color32::WHITE);
+                let p = ctx.layer_painter(egui::LayerId::background());
+                let full = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                // 1) Weichgezeichnete Variante füllt den ganzen Bildschirm (jede Größe/Seitenverhältnis)
+                let ba = b.size_vec2().x / b.size_vec2().y;
+                let sa = sr.width() / sr.height();
+                let uv = if sa > ba { let h = ba / sa; let o = (1.0 - h) * 0.5; egui::Rect::from_min_max(egui::pos2(0.0, o), egui::pos2(1.0, o + h)) }
+                    else { let w = sa / ba; let o = (1.0 - w) * 0.5; egui::Rect::from_min_max(egui::pos2(o, 0.0), egui::pos2(o + w, 1.0)) };
+                p.image(b.id(), sr, uv, Color32::from_gray(150));
+                // 2) Scharfes Bild vollständig (nichts abgeschnitten), mittig im Arbeitsbereich
+                let s0 = t.size_vec2();
+                let k = (sr.width() / s0.x).min(sr.height() / s0.y);
+                let size = s0 * k;
+                let cx = (sr.center().x + 125.0).min(sr.max.x - size.x / 2.0).max(sr.min.x + size.x / 2.0);
+                p.image(t.id(), egui::Rect::from_center_size(egui::pos2(cx, sr.center().y), size), full, Color32::WHITE);
             }
         }
         while let Ok((p, ci)) = self.rx.try_recv() {
